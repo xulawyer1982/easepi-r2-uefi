@@ -144,6 +144,82 @@ for u in $URLS; do say "      $u"; done
 say "--------------------------------------------------------------"
 say ""
 
+# ---- 生成"启动已装系统"的 GRUB 菜单 ---------------------------------------
+#  刷进 NVMe/SATA 的系统如果是 U-Boot 系的（飞牛 / ophub / Armbian 的 ARM 镜像），
+#  盘上没有 EFI 引导器，GRUB 的 chainload 扫不到它。这里改为读目标系统自己的
+#  extlinux.conf，按它写的内核 / dtb / initrd / cmdline 生成一条 GRUB 菜单写回 ESP。
+#  => 固件不绑定内核版本：飞牛换成新内核，只要它的 extlinux.conf 更新了，这里就跟着变。
+gen_boot_menu() {
+  [ -n "$BOOTDEV" ] || return 0
+  mkdir -p /mnt/boot/grub 2>/dev/null || return 0
+  OUT=/mnt/boot/grub/fxboot.cfg
+  : > "$OUT"
+  n=0
+
+  for d in /sys/class/block/*; do
+    p=$(basename "$d")
+    case "$p" in
+      *p[0-9]*|*[0-9]) ;;
+      *) continue ;;
+    esac
+    [ -b "/dev/$p" ] || continue
+    [ "/dev/$p" = "$BOOTDEV" ] && continue
+
+    for fs in ext4 btrfs f2fs ext2 vfat; do
+      mount -t "$fs" -o ro "/dev/$p" /media/probe 2>/dev/null || continue
+
+      conf=""
+      for c in /media/probe/boot/extlinux/extlinux.conf \
+               /media/probe/extlinux/extlinux.conf; do
+        [ -f "$c" ] && conf="$c" && break
+      done
+
+      if [ -n "$conf" ]; then
+        kpath=""; ipath=""; fpath=""; cmd=""
+        while IFS= read -r line; do
+          key=$(echo "$line" | tr 'A-Z' 'a-z' | awk '{print $1}')
+          case "$key" in
+            kernel|linux)  kpath=$(echo "$line" | awk '{print $2}') ;;
+            initrd)        ipath=$(echo "$line" | awk '{print $2}') ;;
+            fdt|devicetree|devicetreedir)
+                           fpath=$(echo "$line" | awk '{print $2}') ;;
+            append)        cmd=$(echo "$line" | cut -s -d' ' -f2-) ;;
+          esac
+        done < "$conf"
+
+        if [ -n "$kpath" ]; then
+          uuid=$(blkid -s UUID -o value "/dev/$p" 2>/dev/null)
+          if [ -n "$uuid" ]; then
+            n=$((n + 1))
+            {
+              echo "# 由 fxrecovery 自动生成：$p（目标系统自己的内核，固件不介入版本）"
+              echo "menuentry '启动已安装的系统 ($p)' --id=installed$n {"
+              echo "    insmod part_gpt"
+              echo "    insmod part_msdos"
+              echo "    insmod ext2"
+              echo "    insmod btrfs"
+              echo "    insmod f2fs"
+              echo "    insmod search"
+              echo "    search --no-floppy --fs-uuid --set=root $uuid"
+              echo "    linux $kpath $cmd"
+              [ -n "$fpath" ] && echo "    devicetree $fpath"
+              [ -n "$ipath" ] && echo "    initrd $ipath"
+              echo "}"
+            } >> "$OUT"
+            say "  已登记可引导系统: $p ($fs) → 内核 $kpath"
+          fi
+        fi
+      fi
+      umount /media/probe 2>/dev/null
+    done
+  done
+
+  if [ "$n" -gt 0 ]; then
+    say "  已生成 GRUB 引导项 $n 条 → /boot/grub/fxboot.cfg（重启后在菜单里可见）"
+  fi
+}
+gen_boot_menu
+
 # ---- 启动服务（带守护，异常退出自动拉起）---------------------------------
 (
   while true; do
