@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fxrecovery · 网页刷机</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --line:#e3e6ea; --text:#1b1f24; --muted:#6b7280;
+    --accent:#1f6feb; --accent-dark:#1758bd; --danger:#d1242f; --ok:#1a7f37; --warn:#9a6700;
+    --radius:10px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+       font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif}
+  .wrap{max-width:1000px;margin:0 auto;padding:24px 20px 60px}
+  header{display:flex;align-items:baseline;justify-content:space-between;gap:16px;margin-bottom:4px}
+  h1{font-size:20px;margin:0;font-weight:600;letter-spacing:.2px}
+  .sub{color:var(--muted);font-size:12.5px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;margin-top:16px}
+  .panel h2{font-size:14px;margin:0 0 12px;font-weight:600;display:flex;align-items:center;gap:8px}
+  .step{display:inline-flex;width:20px;height:20px;border-radius:50%;background:var(--accent);color:#fff;
+        font-size:12px;align-items:center;justify-content:center;font-weight:600}
+  .hint{color:var(--muted);font-size:12.5px}
+  /* 磁盘 */
+  .disks{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px}
+  .disk{border:1.5px solid var(--line);border-radius:8px;padding:12px 14px;cursor:pointer;transition:.12s;position:relative;background:#fff}
+  .disk:hover{border-color:#bcd0f0}
+  .disk.sel{border-color:var(--accent);background:#f3f8ff;box-shadow:0 0 0 3px rgba(31,111,235,.08)}
+  .disk.disabled{opacity:.55;cursor:not-allowed;background:#fafafa}
+  .disk .nm{font-weight:600;font-size:13.5px;display:flex;justify-content:space-between;align-items:center}
+  .disk .meta{color:var(--muted);font-size:12px;margin-top:4px}
+  .tag{font-size:11px;padding:1px 7px;border-radius:20px;border:1px solid var(--line);color:var(--muted);background:#fff}
+  .tag.boot{color:var(--warn);border-color:#f0d9a8;background:#fff9ec}
+  /* 镜像 */
+  .drop{border:1.5px dashed #c6ccd4;border-radius:8px;padding:18px;text-align:center;color:var(--muted);
+        cursor:pointer;transition:.15s;background:#fbfcfd}
+  .drop.hover{border-color:var(--accent);background:#f3f8ff;color:var(--accent)}
+  .drop b{color:var(--text)}
+  table{width:100%;border-collapse:collapse;margin-top:10px;font-size:13px}
+  th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line)}
+  th{color:var(--muted);font-weight:500;font-size:12px}
+  tr.sel td{background:#f3f8ff}
+  tr{cursor:pointer}
+  .btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:#fff;color:var(--text);
+       padding:7px 14px;border-radius:7px;font-size:13px;cursor:pointer;transition:.12s}
+  .btn:hover{border-color:#c6ccd4;background:#fafbfc}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.primary:hover{background:var(--accent-dark)}
+  .btn.danger{color:var(--danger);border-color:#f0c2c6}
+  .btn.danger:hover{background:#fff5f5}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  input[type=text]{border:1px solid var(--line);border-radius:7px;padding:7px 10px;font-size:13px;width:180px;
+                   font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  input[type=text]:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(31,111,235,.12)}
+  /* 进度 */
+  .bar{height:12px;background:#eceff3;border-radius:20px;overflow:hidden;margin:10px 0 6px}
+  .bar > i{display:block;height:100%;width:0;background:linear-gradient(90deg,#2f81f7,#1f6feb);transition:width .3s}
+  .bar.err > i{background:var(--danger)}
+  .bar.ok > i{background:var(--ok)}
+  .stats{display:flex;gap:22px;flex-wrap:wrap;font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .stats b{color:var(--text);font-weight:600}
+  .msg{margin-top:8px;font-size:13px}
+  .msg.err{color:var(--danger)} .msg.ok{color:var(--ok)}
+  .src{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--muted);
+       background:#f7f8fa;border:1px solid var(--line);border-radius:6px;padding:8px 10px;margin-top:10px;white-space:pre-wrap}
+  .warnbox{border-left:3px solid #e3b341;background:#fff9ec;padding:10px 12px;border-radius:4px;font-size:13px;color:#5c4708;margin-top:12px}
+  .foot{color:var(--muted);font-size:12px;margin-top:26px;text-align:center}
+  a{color:var(--accent)}
+  .hidden{display:none!important}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>fxrecovery · 网页刷机控制台</h1>
+      <div class="sub" id="sysline">正在读取设备信息…</div>
+    </div>
+    <div class="row">
+      <button class="btn" onclick="loadAll()">刷新</button>
+      <button class="btn" onclick="power('reboot')">重启</button>
+      <button class="btn danger" onclick="power('poweroff')">关机</button>
+    </div>
+  </header>
+
+  <div class="panel">
+    <h2><span class="step">1</span>选择系统镜像</h2>
+    <div class="drop" id="drop">
+      把镜像文件拖到这里，或 <b>点击选择文件</b> 上传<br>
+      <span class="hint">支持 .img / .img.gz / .iso；上传后保存在设备内存盘或数据分区</span>
+      <input type="file" id="file" class="hidden">
+    </div>
+    <div id="upwrap" class="hidden" style="margin-top:12px">
+      <div class="bar" id="upbar"><i style="width:0"></i></div>
+      <div class="stats"><span>上传 <b id="uppct">0%</b></span><span id="upname"></span></div>
+    </div>
+    <table id="imgtable">
+      <thead><tr><th style="width:46%">镜像文件</th><th>大小</th><th>格式</th><th style="width:60px"></th></tr></thead>
+      <tbody id="imgbody"><tr><td colspan="4" class="hint">暂无镜像，请上传</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="panel">
+    <h2><span class="step">2</span>选择目标磁盘</h2>
+    <div class="disks" id="disks"></div>
+    <div class="warnbox">
+      目标盘上的<b>所有数据与分区表都会被覆盖</b>。启动介质（本固件所在磁盘）已自动排除，无法选择。
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2><span class="step">3</span>执行写入</h2>
+    <div class="row">
+      <span class="hint">确认词：输入目标设备名</span>
+      <input type="text" id="confirm" placeholder="例如 nvme0n1" autocomplete="off">
+      <label class="row" style="gap:6px;font-size:13px;color:var(--muted)">
+        <input type="checkbox" id="verify" checked> 写后回读校验
+      </label>
+      <button class="btn primary" id="go" disabled onclick="startFlash()">开始写入</button>
+      <button class="btn danger hidden" id="cancel" onclick="cancelFlash()">中止</button>
+    </div>
+    <div id="progwrap" class="hidden">
+      <div class="bar" id="bar"><i></i></div>
+      <div class="stats">
+        <span>进度 <b id="pct">0%</b></span>
+        <span>已写 <b id="done">0 B</b> / <b id="total">?</b></span>
+        <span>速度 <b id="speed">-</b></span>
+        <span>剩余 <b id="eta">-</b></span>
+      </div>
+      <div class="msg" id="msg"></div>
+      <div class="src" id="hash" style="display:none"></div>
+    </div>
+  </div>
+
+  <div class="foot">fxrecovery <span id="ver"></span> · RK3588 救援固件 · 镜像原样写入，不做分区调整</div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const state = { image: null, target: null, busy: false };
+
+function fmt(b){
+  if(!b) return '0 B';
+  const u=['B','KiB','MiB','GiB','TiB']; let i=0; b=Number(b);
+  while(b>=1024 && i<u.length-1){ b/=1024; i++ }
+  return b.toFixed(i?2:0)+' '+u[i];
+}
+function fmtEta(s){
+  if(!s || s<0) return '-';
+  const m=Math.floor(s/60), ss=s%60;
+  return m? `${m}分${ss}秒` : `${ss}秒`;
+}
+
+async function loadSys(){
+  const r = await fetch('/api/sysinfo'); const d = await r.json();
+  $('#ver').textContent = 'v'+d.version;
+  const urls = (d.urls||[]).join('  ');
+  $('#sysline').textContent = `内核 ${d.kernel||''} · 访问地址 ${urls||'（网络未就绪）'}`;
+}
+
+async function loadDisks(){
+  const r = await fetch('/api/disks'); const d = await r.json();
+  const box = $('#disks'); box.innerHTML='';
+  if(!d.disks || !d.disks.length){ box.innerHTML='<div class="hint">未检测到可写入的磁盘</div>'; return }
+  d.disks.forEach(x=>{
+    const el = document.createElement('div');
+    el.className = 'disk' + (x.is_boot||x.mounted.length ? ' disabled':'');
+    if(state.target === x.path) el.classList.add('sel');
+    let tags = `<span class="tag">${x.bus}</span>`;
+    if(x.is_boot) tags += ` <span class="tag boot">启动介质</span>`;
+    if(x.mounted.length) tags += ` <span class="tag boot">已挂载</span>`;
+    el.innerHTML = `<div class="nm"><span>/dev/${x.name}</span><span>${tags}</span></div>
+      <div class="meta">${fmt(x.size)} · ${x.model||'未知型号'}</div>`;
+    if(!(x.is_boot||x.mounted.length)){
+      el.onclick = ()=>{
+        state.target = x.path;
+        document.querySelectorAll('.disk').forEach(e=>e.classList.remove('sel'));
+        el.classList.add('sel');
+        $('#confirm').placeholder = '例如 '+x.name;
+        syncGo();
+      };
+    }
+    box.appendChild(el);
+  });
+}
+
+async function loadImages(){
+  const r = await fetch('/api/images'); const d = await r.json();
+  const tb = $('#imgbody'); tb.innerHTML='';
+  if(!d.images || !d.images.length){
+    tb.innerHTML='<tr><td colspan="4" class="hint">暂无镜像，请上传</td></tr>'; return;
+  }
+  d.images.forEach(x=>{
+    const tr = document.createElement('tr');
+    if(state.image===x.path) tr.className='sel';
+    tr.innerHTML = `<td>${x.name}</td><td>${fmt(x.size)}</td><td>${x.kind}</td>
+      <td><button class="btn danger" style="padding:2px 8px">删除</button></td>`;
+    tr.onclick = e=>{
+      if(e.target.tagName==='BUTTON') return;
+      state.image = x.path;
+      document.querySelectorAll('#imgbody tr').forEach(t=>t.classList.remove('sel'));
+      tr.classList.add('sel'); syncGo();
+    };
+    tr.querySelector('button').onclick = async e=>{
+      e.stopPropagation();
+      if(!confirm('删除镜像 '+x.name+' ?')) return;
+      await fetch('/api/delete?name='+encodeURIComponent(x.name), {method:'POST'});
+      if(state.image===x.path) state.image=null;
+      loadImages(); syncGo();
+    };
+    tb.appendChild(tr);
+  });
+}
+
+function syncGo(){
+  const c = $('#confirm').value.trim();
+  const name = state.target ? state.target.replace('/dev/','') : '';
+  $('#go').disabled = !(state.image && state.target && c === name && !state.busy);
+}
+
+$('#confirm').oninput = syncGo;
+
+async function startFlash(){
+  const target = state.target, image = state.image;
+  const confirmWord = target.replace('/dev/','');
+  if(!confirm(`即将把 ${image.split('/').pop()} 原样写入 ${target}\n该盘全部数据会丢失，继续？`)) return;
+  const body = { image, target, verify: $('#verify').checked, confirm: confirmWord };
+  const r = await fetch('/api/flash', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  if(!r.ok){ alert(await r.text()); return }
+  state.busy = true; $('#go').classList.add('hidden'); $('#cancel').classList.remove('hidden');
+  $('#progwrap').classList.remove('hidden');
+}
+
+async function cancelFlash(){
+  if(!confirm('中止写入？目标盘会留下不完整的数据。')) return;
+  await fetch('/api/cancel', {method:'POST'});
+}
+
+function renderStatus(s){
+  $('#progwrap').classList.remove('hidden');
+  const pct = s.total ? Math.min(100, s.done*100/s.total) : 0;
+  const bar = $('#bar');
+  bar.className = 'bar' + (s.phase==='error'?' err':(s.phase==='done'?' ok':''));
+  bar.querySelector('i').style.width = (s.phase==='verifying' ? 100 : pct).toFixed(2)+'%';
+  $('#pct').textContent = (s.phase==='verifying'?'校验中':pct.toFixed(1)+'%');
+  $('#done').textContent = fmt(s.done);
+  $('#total').textContent = s.total?fmt(s.total):'?';
+  $('#speed').textContent = s.speed?fmt(s.speed)+'/s':'-';
+  $('#eta').textContent = s.phase==='writing'?fmtEta(s.eta):'-';
+  const m = $('#msg'); m.className='msg'+(s.phase==='error'?' err':(s.phase==='done'?' ok':''));
+  m.textContent = s.message || '';
+  if(s.err && s.phase==='error') m.textContent = s.message;
+  if(s.hash){ $('#hash').style.display='block'; $('#hash').textContent='sha256: '+s.hash }
+  state.busy = s.running;
+  $('#go').classList.toggle('hidden', s.running);
+  $('#cancel').classList.toggle('hidden', !s.running);
+  if(!s.running && (s.phase==='done'||s.phase==='error'||s.phase==='cancelled')) syncGo();
+}
+
+function connectSSE(){
+  const es = new EventSource('/api/progress');
+  es.onmessage = e => { try{ renderStatus(JSON.parse(e.data)) }catch(_){} };
+  es.onerror = () => { es.close(); setTimeout(connectSSE, 2000) };
+}
+
+function upload(file){
+  if(!file) return;
+  $('#upwrap').classList.remove('hidden');
+  $('#upname').textContent = file.name + ' · ' + fmt(file.size);
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/api/upload?name='+encodeURIComponent(file.name));
+  xhr.upload.onprogress = e=>{
+    if(e.lengthComputable){
+      const p = e.loaded*100/e.total;
+      $('#upbar').querySelector('i').style.width = p.toFixed(1)+'%';
+      $('#uppct').textContent = p.toFixed(1)+'%';
+    }
+  };
+  xhr.onload = ()=>{
+    if(xhr.status===200){
+      const d = JSON.parse(xhr.responseText);
+      state.image = d.path;
+      loadImages(); syncGo();
+      setTimeout(()=>$('#upwrap').classList.add('hidden'), 800);
+    }else{
+      alert('上传失败：'+xhr.responseText);
+    }
+  };
+  xhr.onerror = ()=>alert('上传中断');
+  xhr.send(file);
+}
+
+const drop = $('#drop');
+drop.onclick = ()=>$('#file').click();
+$('#file').onchange = e=>upload(e.target.files[0]);
+['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev, e=>{e.preventDefault();drop.classList.add('hover')}));
+['dragleave','drop'].forEach(ev=>drop.addEventListener(ev, e=>{e.preventDefault();drop.classList.remove('hover')}));
+drop.addEventListener('drop', e=>{ if(e.dataTransfer.files[0]) upload(e.dataTransfer.files[0]) });
+
+async function power(a){
+  if(!confirm(a==='reboot'?'确定重启设备？':'确定关机？')) return;
+  await fetch('/api/power?action='+a, {method:'POST'});
+  alert(a==='reboot'?'设备正在重启…':'设备已关机，可断电');
+}
+
+function loadAll(){ loadSys(); loadDisks(); loadImages(); syncGo() }
+loadAll();
+connectSSE();
+setInterval(()=>{ if(!state.busy) loadImages() }, 5000);
+</script>
+</body>
+</html>

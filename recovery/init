@@ -153,7 +153,8 @@ gen_boot_menu() {
   [ -n "$BOOTDEV" ] || return 0
   mkdir -p /mnt/boot/grub 2>/dev/null || return 0
   OUT=/mnt/boot/grub/fxboot.cfg
-  : > "$OUT"
+  TMP=/tmp/fxboot.cfg.$$
+  : > "$TMP"
   n=0
 
   for d in /sys/class/block/*; do
@@ -205,8 +206,7 @@ gen_boot_menu() {
               [ -n "$fpath" ] && echo "    devicetree $fpath"
               [ -n "$ipath" ] && echo "    initrd $ipath"
               echo "}"
-            } >> "$OUT"
-            say "  已登记可引导系统: $p ($fs) → 内核 $kpath"
+            } >> "$TMP"
           fi
         fi
       fi
@@ -214,11 +214,23 @@ gen_boot_menu() {
     done
   done
 
-  if [ "$n" -gt 0 ]; then
-    say "  已生成 GRUB 引导项 $n 条 → /boot/grub/fxboot.cfg（重启后在菜单里可见）"
+  # 只在内容变了才写，否则轮询每 15 秒刷一次屏
+  if [ "$n" -gt 0 ] && ! cmp -s "$TMP" "$OUT" 2>/dev/null; then
+    cat "$TMP" > "$OUT"
+    sync
+    say "  已写入 GRUB 引导项 $n 条 → /boot/grub/fxboot.cfg（重启即可见）"
   fi
+  rm -f "$TMP"
 }
+
+# 后台轮询：刷完系统不必再多重启一次。写盘结束后下一次扫描就会把菜单写回 ESP。
 gen_boot_menu
+(
+  while true; do
+    sleep 15
+    gen_boot_menu
+  done
+) &
 
 # ---- 启动服务（带守护，异常退出自动拉起）---------------------------------
 (
