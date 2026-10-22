@@ -1,0 +1,115 @@
+name: build-easepi-r2-uefi
+
+# Builds EDK2 UEFI firmware for the LinkEase EasePi R2 (RK3588).
+#
+# The platform port lives in this repository as an overlay on top of
+# edk2-porting/edk2-rk3588, so the upstream tree itself does not have to be
+# vendored here.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+  workflow_dispatch:
+    inputs:
+      release_mode:
+        description: 'Release build mode'
+        type: choice
+        options: [Release, Debug]
+        default: Release
+
+env:
+  TZ: Asia/Shanghai
+  UPSTREAM_REPO: https://github.com/edk2-porting/edk2-rk3588.git
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout overlay
+        uses: actions/checkout@v4
+
+      - name: Clone upstream edk2-rk3588
+        run: |
+          set -e
+          git clone --depth 1 "${UPSTREAM_REPO}" up
+          cd up
+          # kernel.googlesource.com is blocked from most CI networks. We ship a
+          # prebuilt vendor DTB, so the mainline devicetree submodule is not
+          # needed at all.
+          git config submodule."devicetree/mainline/upstream".active false
+          git submodule update --init --depth 1 \
+            edk2 edk2-platforms edk2-non-osi arm-trusted-firmware misc/rkbin
+          echo "--- submodule sizes ---"
+          du -sh edk2 edk2-platforms edk2-non-osi arm-trusted-firmware misc/rkbin
+
+      - name: Apply EasePi R2 platform overlay
+        run: |
+          set -e
+          mkdir -p up/edk2-rockchip/Platform/Radxa/EasePiR2
+          cp -a platform/EasePiR2/. up/edk2-rockchip/Platform/Radxa/EasePiR2/
+          cp devicetree/vendor/rk3588-easepi-r2.dtb up/devicetree/vendor/
+          cp configs/easepi-r2.conf up/configs/
+          echo "--- applied files ---"
+          find up/edk2-rockchip/Platform/Radxa/EasePiR2 -type f | sort
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            acpica-tools \
+            binutils-aarch64-linux-gnu \
+            build-essential \
+            device-tree-compiler \
+            gettext \
+            git \
+            gcc-aarch64-linux-gnu \
+            libc6-dev-arm64-cross \
+            python3 \
+            python3-pyelftools \
+            uuid-dev
+
+      - name: Build firmware
+        working-directory: up
+        run: |
+          set -o pipefail
+          mode="${{ inputs.release_mode || 'Release' }}"
+          echo "Building for EasePiR2 in ${mode} mode"
+          ./build.sh --device easepi-r2 --release "${mode}" 2>&1 | tee /tmp/build.log
+
+      - name: Collect artifacts
+        run: |
+          set -e
+          ls -lh up/RK3588_NOR_FLASH.img
+          sha256sum up/RK3588_NOR_FLASH.img | tee /tmp/firmware.sha256
+          echo "--- flash layout check ---"
+          python3 - <<'PY'
+          import struct
+          d = open('up/RK3588_NOR_FLASH.img', 'rb').read()
+          print('image size: %d bytes (%.2f MiB)' % (len(d), len(d) / 1048576))
+          # idblock starts at 0x8000 and its first 4 bytes are the Rockchip tag
+          print('idblock @0x8000 :', d[0x8000:0x8010].hex())
+          # UEFI payload FIT sits at 0x100000
+          fit = d[0x100000:0x100004]
+          print('FIT @0x100000  :', fit.hex(),
+                '(OK)' if fit == b'\xd0\x0d\xfe\xed' else '(UNEXPECTED)')
+          tot = struct.unpack('>I', d[0x100004:0x100008])[0]
+          print('FIT totalsize  :', tot)
+          PY
+
+      - name: Upload firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: easepi-r2-uefi-${{ inputs.release_mode || 'Release' }}
+          path: |
+            up/RK3588_NOR_FLASH.img
+            /tmp/firmware.sha256
+            /tmp/build.log
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Build log tail on failure
+        if: failure()
+        run: tail -n 120 /tmp/build.log || true

@@ -1,0 +1,7 @@
+# 上游源码在 CI 里临时克隆，不进本仓库
+up/
+build/
+*.o
+*.pyc
+__pycache__/
+.DS_Store
