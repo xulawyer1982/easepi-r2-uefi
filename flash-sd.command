@@ -85,6 +85,17 @@ echo
 echo "▸ 卸载 $TARGET ..."
 diskutil unmountDisk force "$TARGET" || true
 
+# ---- 先清空前 8 MiB ----
+# 旧卡上可能残留别的系统的 MBR / GPT / FAT 引导扇区。固件只写 0x8000 之后，
+# 若不清零，UEFI 起来后会看到一个分区表指向已被固件覆盖的数据区，
+# 表现为"磁盘存在但分区读不出内容"，容易误判成固件故障。
+# 8 MiB = 16384 × 512，正好覆盖 idblock + UEFI FV 的完整占用范围。
+echo "▸ 清空前 8 MiB（含旧 MBR / 分区表）..."
+if ! sudo dd if=/dev/zero of="$RDISK" bs=${BS} count=16384 2>&1 | tail -2; then
+  echo "✘ 清零失败（多半是终端缺「完全磁盘访问权限」）"
+  read -r -p "按回车退出..." _; exit 1
+fi
+
 echo "▸ 写入 $IMG → $RDISK (offset $((SEEK_BLOCKS*BS)) = 0x$(printf '%x' $((SEEK_BLOCKS*BS)))) ..."
 if ! sudo dd if="$IMG" of="$RDISK" bs=${BS} skip=${SKIP_BLOCKS} seek=${SEEK_BLOCKS} conv=notrunc 2>&1 | tail -5; then
   echo "✘ 写入失败。若是 'Operation not permitted'，说明终端没有「完全磁盘访问权限」："
