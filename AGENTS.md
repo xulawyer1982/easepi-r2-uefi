@@ -10,7 +10,7 @@
 **LinkEase EasePi R2（RK3588）的 EDK2 UEFI 板级移植 + 自研网页刷机盘**，以 overlay 方式叠加到上游
 [edk2-porting/edk2-rk3588](https://github.com/edk2-porting/edk2-rk3588) 上构建。
 
-- 本仓库**不含** UEFI 源码，只有 6 个板级文件 + 打包脚本 + recovery 程序 + CI。
+- 本仓库**不含** UEFI 源码，只有 7 个板级文件（DSC / 模块表 / ACPI / DeviceTree.inf / PlatformLib 2 个）+ 打包脚本 + recovery 程序 + CI。
 - 目标硬件：LinkEase EasePi R2（4× RTL8125 2.5G 网口，NVMe 系统盘，eMMC 29 GiB，无 SPI NOR）。
 - **本仓库是公开仓库：不要写入任何内网地址、主机名、Tailscale 域名、真实姓名或邮箱。**
   需要举例时用 `192.0.2.x`（RFC 5737 文档专用段）/ `example.local` 这类占位值。
@@ -47,8 +47,8 @@ CI（首选，Linux 环境干净）：推 `main` 或手动 `workflow_dispatch`�
 ```bash
 # 本地：Linux / WSL / Docker
 git clone --depth 1 https://github.com/edk2-porting/edk2-rk3588.git up && cd up
-git config submodule."devicetree/mainline/upstream".active false   # kernel.googlesource.com 必 502
-git submodule update --init --depth 1 --recursive \
+git config submodule."devicetree/mainline/upstream".active false   # kernel.googlesource.com 常 502
+git submodule update --init --recursive --depth 1 \
   edk2 edk2-platforms edk2-non-osi arm-trusted-firmware misc/rkbin
 cp -a ../platform/EasePiR2/. edk2-rockchip/Platform/Radxa/EasePiR2/
 cp ../devicetree/vendor/rk3588-easepi-r2.dtb devicetree/vendor/
@@ -56,7 +56,10 @@ cp ../configs/easepi-r2.conf configs/
 ./build.sh --device easepi-r2 --release Release     # → RK3588_NOR_FLASH.img（约 6.98 MB）
 ```
 
-- **`--recursive` 不可省**：`brotli/c/common/constants.h` 在二级子模块里，缺了就编译失败。
+- **`--recursive` 不可省**：`brotli/c/common/constants.h` 在二级子模块里，缺了 BaseTools 就编译失败。
+- 若 `devicetree/mainline/upstream` 拉不下来：`RockchipPkg.dec` 的 `[Includes]` 里写死了它的
+  `include/` 和 `src/arm64/rockchip/` 路径，目录不存在连构建都起不来。CI 的做法是先尝试拉取、失败就
+  `mkdir -p` 兜底（我们不编译主线 DTS，只要有目录）；本机可直接 `submodule.<name>.active false`。
 - 上游 `build.sh` 自带 `--pcd gRockchipTokenSpaceGuid.PcdFitImageFlashAddress=0x100000`，**别重复传、也别去掉**。
 - macOS 上 `scripts/build-sd.sh` 走 `hdiutil` 分支，产物会带 `.Trashes`/`TRASH~15`，**只有 Linux 分支的产物可当交付**。
 
@@ -111,6 +114,15 @@ cp ../configs/easepi-r2.conf configs/
 5. **不要假设 BootROM 能从 NVMe/SATA 启动**。SSD 上的系统永远需要 SD 卡（或 eMMC 里的固件）当跳板。
 6. 不要为了"省事"把 `CONFIG` 里的 `PcdFitImageFlashAddress` 改成别的值来适配新布局 —— 应改的是 dd 偏移。
 7. 不要提交 `out/`、`recovery-payload.tar.gz`（15.7 MiB 二进制）。
+8. **提交前自查**（本仓库公开，2026-10-22 曾因缺失这一步泄露过内网地址）：
+
+   ```bash
+   git grep -nIE "192\.168\.|10\.[0-9]+\.[0-9]+\.|172\.(1[6-9]|2[0-9]|3[01])\.|@qq\.com|@outlook|/Users/"
+   ```
+
+   必须为空。已经 push 出去的：改写历史（`filter-branch --tree-filter` + `--force-with-lease` 强推）
+   + 本地 `git reflog expire --expire=now --all && git gc --prune=now`；注意 GitHub 侧旧 commit 对象
+   短期仍可用 SHA 直链访问，彻底清除要联系 GitHub Support。
 
 ---
 
