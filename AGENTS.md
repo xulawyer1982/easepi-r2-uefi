@@ -35,8 +35,14 @@ BootROM → idblock(SPL+ATF) → EDK2 UEFI → GRUB → Linux(6.18.18-trim) → 
 | `recovery/init` `recovery/grub.cfg` `recovery/udhcpc.sh` | 打包进 initramfs 的启动逻辑 | 刷机盘能否找到 ESP、能否起网 |
 | `scripts/build-sd.sh` | 组装 105 MiB 刷机盘 | 分区偏移、FAT、文件布局 |
 | `scripts/upload-payload.py` | 把 recovery payload（15.7 MiB）传到 GitHub prerelease `payload-k6.18.18-trim` | CI 拉取源 |
+| `scripts/gh-release.py` | 建 release 并上传资产（token 走 `git credential fill`） | 用户下载入口 |
+| `src/main.go` `src/go.mod` `src/www/index.html` | 网页刷机程序（Go，`//go:embed www/index.html`）。**本机没有 Go 编译器**，改之前先想清楚：payload 里的 `fxrecovery` 是预编译二进制 | 刷机界面与写盘逻辑 |
 | `flash-sd.command` / `flash-recovery-sd.command` | macOS 双击写卡（窄写固件 / 整盘写） | 用户操作入口 |
 | `out/` | 构建产物，**不要提交** | — |
+
+**已归档的历史仓库**（`archived=true`，只读）：`easypi-r2-fw`（U-Boot 版固件助手）、
+`easypi-r2-recovery`（U-Boot 版 recovery）。Go 源码已迁到本仓库 `src/`，不要再引用它们。
+删仓库需要 `delete_repo` scope，当前 token 只有 `repo`，只能归档不能删。
 
 ---
 
@@ -114,7 +120,14 @@ cp ../configs/easepi-r2.conf configs/
 5. **不要假设 BootROM 能从 NVMe/SATA 启动**。SSD 上的系统永远需要 SD 卡（或 eMMC 里的固件）当跳板。
 6. 不要为了"省事"把 `CONFIG` 里的 `PcdFitImageFlashAddress` 改成别的值来适配新布局 —— 应改的是 dd 偏移。
 7. 不要提交 `out/`、`recovery-payload.tar.gz`（15.7 MiB 二进制）。
-8. **提交前自查**（本仓库公开，2026-10-22 曾因缺失这一步泄露过内网地址）：
+8. **不要在 `recovery/grub.cfg` 里写死目标系统的内核路径或版本**。目标系统（飞牛 / ophub）是
+   U-Boot + `extlinux.conf` 体系，盘上没有 EFI 引导器，chainload 扫不到它。正确做法是让
+   `recovery/init` 的 `gen_boot_menu()` 去读目标盘自己的 `boot/extlinux/extlinux.conf`，把它的
+   kernel / fdt / initrd / append + `blkid` 拿到的 UUID 翻译成 GRUB 菜单写回 ESP 的
+   `/boot/grub/fxboot.cfg`，`grub.cfg` 启动时 `source` 它。
+   **固件因此不绑定任何内核版本**——目标系统换内核，只要它的 extlinux.conf 更新就自动跟随。
+   该函数在 init 里以 15 秒周期后台轮询，内容变了才重写（`cmp -s`），所以刷完盘不用再重启一次。
+9. **提交前自查**（本仓库公开，2026-10-22 曾因缺失这一步泄露过内网地址）：
 
    ```bash
    git grep -nIE "192\.168\.|10\.[0-9]+\.[0-9]+\.|172\.(1[6-9]|2[0-9]|3[01])\.|@qq\.com|@outlook|/Users/"
@@ -130,6 +143,7 @@ cp ../configs/easepi-r2.conf configs/
 
 | 症状 | 根因 | 处理 |
 |:--|:--|:--|
+| `git push` 全部 `CONNECT tunnel failed, 502` | 环境里 `HTTPS_PROXY` 指的本机代理不通 github.com:443，但 `api.github.com` 是通的 | 用 **Git Data API** 推文件（blob→tree→commit→PATCH ref），别死磕 push。之后记得把本地分支同步回远端 |
 | ESP 里多出 `TRASH~15` / `._*` / `.fseventsd` | macOS 往 FAT 写元数据，8.3 别名把 `.Trashes` 变成 `TRASH~15` | Linux 构建；或 detach 后在 FAT 根目录按前缀标 `0xE5` |
 | `unbound variable` 且指向中文字符 | bash 3.2 把 `$VAR中文` 当成一个变量名 | 一律写 `${VAR}中文` |
 | `::/EFI/BOOT/grub.cfg: no match for target` | `mcopy` 不自动建父目录 | 先 `mmd`，再 `mcopy` |
