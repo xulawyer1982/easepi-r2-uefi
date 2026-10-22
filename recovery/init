@@ -229,10 +229,12 @@ gen_boot_menu() {
 # ---- 可选的擦盘请求 -------------------------------------------------------
 #  用法：在 SD 卡的 ESP（Mac/Win 都能直接读写的 FAT 分区）根目录放一个
 #        fx-wipe-<盘名>.txt，例如 fx-wipe-mmcblk0.txt
-#  目的：清掉 eMMC 上的原厂 idbloader 和旧系统，让 BootROM 转而去引导 SD 卡。
+#  目的：清掉 eMMC 上的原厂 idbloader 和分区表，让 BootROM 转而去引导 SD 卡。
 #  盘名必须写在文件名里 —— 不接受"擦全部"这种写法，避免一次误伤多块盘。
-#  文件内容第一行：留空或 head = 只擦前 8 MiB（默认，够破坏 idblock + 分区表）
-#                            full = 全盘擦（大容量盘要几分钟）
+#  固定只擦前 8 MiB：idblock 在 0x8000、GPT 在 0x200 起，都落在这 8 MiB 里，
+#  擦掉它就足以让这块盘不再被 BootROM 选中；后面的数据区原样不动。
+#  不做全盘擦 —— 又慢又没必要，数据区留着还有救回来的余地。
+#  文件内容第一行留空或写 head 即可；写别的（比如 full）一律拒绝，不静默降级。
 disk_of() {
   b=$(basename "$1")
   case "$b" in
@@ -281,20 +283,18 @@ run_wipe_requests() {
     mode=$(head -n 1 "$f" 2>/dev/null | tr -d ' \t\r')
     [ -n "$mode" ] || mode=head
 
-    say "  收到擦盘请求：$tgt（模式 $mode）"
-    if [ "$mode" = "full" ]; then
-      say "  全盘擦除中，大容量盘需要几分钟..."
-      if dd if=/dev/zero of="$tgt" bs=1048576 2>/dev/null; then
-        say "  $tgt 全盘擦除完成"
-      else
-        say "  $tgt 全盘擦除未跑完（看 dmesg）"
-      fi
+    # 只认前 8 MiB 这一档。写 full 的明确拒绝，免得用户以为盘已经擦干净了。
+    if [ "$mode" != "head" ]; then
+      say "  拒绝擦盘请求 $tgt：不支持的模式 '$mode'（现在只擦前 8 MiB，文件内容留空即可）"
+      mv "$f" "${f%.txt}.refused" 2>/dev/null
+      continue
+    fi
+
+    say "  收到擦盘请求：$tgt（前 8 MiB）"
+    if dd if=/dev/zero of="$tgt" bs=1048576 count=8 2>/dev/null; then
+      say "  $tgt 前 8 MiB 已清零（idblock + 分区表已废，数据区未动）"
     else
-      if dd if=/dev/zero of="$tgt" bs=1048576 count=8 2>/dev/null; then
-        say "  $tgt 前 8 MiB 已清零（idblock + 分区表已废）"
-      else
-        say "  $tgt 擦除失败"
-      fi
+      say "  $tgt 擦除失败"
     fi
     sync
 
