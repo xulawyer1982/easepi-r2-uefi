@@ -40,10 +40,16 @@ jobs:
           # prebuilt vendor DTB, so the mainline devicetree submodule is not
           # needed at all.
           git config submodule."devicetree/mainline/upstream".active false
-          git submodule update --init --depth 1 \
+          # --recursive is required: edk2 itself carries nested submodules
+          # (BaseTools brotli, CryptoPkg openssl) without which BaseTools
+          # fails to build.
+          git submodule update --init --recursive --depth 1 \
             edk2 edk2-platforms edk2-non-osi arm-trusted-firmware misc/rkbin
           echo "--- submodule sizes ---"
           du -sh edk2 edk2-platforms edk2-non-osi arm-trusted-firmware misc/rkbin
+          echo "--- nested submodules ---"
+          ls -d edk2/BaseTools/Source/C/BrotliCompress/brotli 2>/dev/null || echo "MISSING brotli"
+          ls -d edk2/CryptoPkg/Library/OpensslLib/openssl 2>/dev/null || echo "MISSING openssl"
 
       - name: Apply EasePi R2 platform overlay
         run: |
