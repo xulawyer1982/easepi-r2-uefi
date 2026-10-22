@@ -6,3 +6,6 @@ build/
 __pycache__/
 .DS_Store
 out/
+recovery-payload.tar.gz
+payload/
+*.deb

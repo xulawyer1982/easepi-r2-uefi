@@ -83,10 +83,12 @@ jobs:
             binutils-aarch64-linux-gnu \
             build-essential \
             device-tree-compiler \
+            dosfstools \
             gettext \
             git \
             gcc-aarch64-linux-gnu \
             libc6-dev-arm64-cross \
+            mtools \
             python3 \
             python3-pyelftools \
             uuid-dev
@@ -119,15 +121,46 @@ jobs:
           print('FIT totalsize  :', tot)
           PY
 
+      - name: Assemble full recovery SD image
+        run: |
+          set -e
+          mkdir -p out
+          cp up/RK3588_NOR_FLASH.img out/rk3588-easepi-r2-uefi-Release.img
+
+          # GRUB arm64: take Debian's prebuilt monolithic EFI, never execute it.
+          GRUB_VER=2.06-13+deb12u2
+          curl -sSL --retry 5 --retry-all-errors -o /tmp/grub.deb \
+            "https://deb.debian.org/debian/pool/main/g/grub2/grub-efi-arm64-bin_${GRUB_VER}_arm64.deb"
+          mkdir -p /tmp/grubx && cd /tmp/grubx
+          ar x /tmp/grub.deb
+          tar -xJf data.tar.xz
+          GRUB_EFI=/tmp/grubx/usr/lib/grub/arm64-efi/monolithic/grubaa64.efi
+          ls -lh "${GRUB_EFI}"
+          cd "${GITHUB_WORKSPACE}"
+
+          # recovery payload (kernel, busybox, NIC modules, firmware, Go app)
+          # lives in a prerelease so the repo stays small.
+          curl -sSL --retry 5 --retry-all-errors -o /tmp/payload.tar.gz \
+            "https://github.com/${{ github.repository }}/releases/download/payload-k6.18.18-trim/recovery-payload.tar.gz"
+          mkdir -p payload && tar -xzf /tmp/payload.tar.gz -C payload
+          ls -lh payload
+
+          ./scripts/build-sd.sh \
+            --assets payload \
+            --fxrecovery payload/fxrecovery \
+            --grub "${GRUB_EFI}"
+
       - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
           name: easepi-r2-uefi-${{ inputs.release_mode || 'Release' }}
           path: |
             up/RK3588_NOR_FLASH.img
+            out/fxrecovery-easepi-r2-sd.img
+            out/SD_SHA256SUMS
             /tmp/firmware.sha256
             /tmp/build.log
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 30
 
       - name: Build log tail on failure
