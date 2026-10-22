@@ -1,4 +1,4 @@
-# EasePi R2 — EDK2 UEFI 固件
+# EasePi R2 — EDK2 UEFI 固件 + 网页刷机盘
 
 给 **LinkEase EasePi R2（RK3588）** 移植的 EDK2 UEFI 固件。刷进 **SD 卡或 eMMC** 后，
 这块板子就从 `U-Boot + extlinux` 变成 **标准 UEFI 平台**：
@@ -7,7 +7,24 @@
 BootROM → idblock(SPL+ATF) → EDK2 UEFI → OS
 ```
 
-于是它能干 U-Boot 干不了的事：
+本仓库产出**两样东西**：
+
+| 产物 | 大小 | 用途 |
+|---|---|---|
+| `rk3588-easepi-r2-uefi-Release.img` | 6.65 MiB | 纯 UEFI 固件（含 idblock + ATF + UEFI），写 0x8000 |
+| `fxrecovery-easepi-r2-sd.img` | 105 MiB | **完整刷机盘**：UEFI + GRUB + Linux recovery + 网页刷机程序 |
+
+完整刷机盘的启动链：
+
+```
+BootROM → idblock(SPL+ATF) → EDK2 UEFI → GRUB → Linux(6.18.18-trim)
+        → initramfs → Go 网页服务 → 浏览器选盘选镜像 → dd 写 NVMe/SATA
+```
+
+插卡上电，浏览器打开它打印的地址，就能往 SSD 里装系统。**RK3588 BootROM 不能从
+NVMe/SATA 直接引导**，所以这张卡要一直插着当引导介质，SSD 只放系统。
+
+然后它能干 U-Boot 干不了的事：
 
 - 引导 **标准 UEFI 系统**：Debian / Ubuntu arm64 的 ISO 安装盘、GRUB、EFI stub 内核
 - 引导 **Windows on ARM**（驱动残缺，仅尝鲜）

@@ -1,0 +1,158 @@
+#!/bin/busybox sh
+# =============================================================================
+#  fxrecovery for EasePi R2 · init
+#
+#  链路：BootROM → idblock(SPL+ATF) → EDK2 UEFI → GRUB → 本 initramfs → 网页刷机
+#
+#  与旧的 U-Boot 版本相比，唯一的差异是"启动分区"的判定依据：
+#  以前找 extlinux/extlinux.conf，现在找 EFI/BOOT/BOOTAA64.EFI（ESP 分区）。
+#  其余逻辑（网卡、DHCP、内存盘、服务守护）完全复用。
+# =============================================================================
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+/bin/busybox --install -s /bin 2>/dev/null
+
+mount -t proc     proc   /proc     2>/dev/null
+mount -t sysfs    sysfs  /sys      2>/dev/null
+mount -t devtmpfs devtmpfs /dev    2>/dev/null
+[ -e /dev/null ] || mdev -s 2>/dev/null
+mkdir -p /dev/pts /tmp /run /images /mnt /media/probe
+mount -t devpts devpts /dev/pts 2>/dev/null
+
+# ---- 控制台：同时输出到串口与本地屏幕 -------------------------------------
+CONSOLE=/dev/console
+[ -c /dev/ttyS2 ] && CONSOLE=/dev/ttyS2
+say() { echo "$*"; echo "$*" > "$CONSOLE" 2>/dev/null; }
+
+say ""
+say "=============================================================="
+say "  fxrecovery for EasePi R2 (RK3588, UEFI 引导)"
+say "  正在启动刷机环境，请稍候 ..."
+say "=============================================================="
+
+# ---- 内核模块：网卡在这套核里是模块，必须显式加载 -------------------------
+for m in r8169 realtek dwmac-rk stmmac-platform stmmac pcs_xpcs; do
+  modprobe "$m" 2>/dev/null
+done
+mdev -s 2>/dev/null
+
+# ---- 定位启动分区（承载本 recovery 的那个 ESP）---------------------------
+BOOTDEV=""
+for a in $(cat /proc/cmdline); do
+  case "$a" in fxboot=*) BOOTDEV="${a#fxboot=}" ;; esac
+done
+
+find_boot_part() {
+  # 遍历块设备分区，找到带 UEFI 引导文件的 ESP
+  for d in /sys/class/block/*; do
+    n=$(basename "$d")
+    case "$n" in
+      *p[0-9]*|[a-z]*[0-9]) ;;
+      *) continue ;;
+    esac
+    [ -b "/dev/$n" ] || continue
+    if mount -t vfat -o ro "/dev/$n" /media/probe 2>/dev/null; then
+      if [ -f /media/probe/EFI/BOOT/BOOTAA64.EFI ] || \
+         [ -f /media/probe/EFI/BOOT/grub.cfg ] || \
+         [ -f /media/probe/fx-recovery.tag ]; then
+        echo "/dev/$n"; umount /media/probe; return 0
+      fi
+      umount /media/probe
+    fi
+  done
+  return 1
+}
+
+[ -n "$BOOTDEV" ] || BOOTDEV="$(find_boot_part)"
+if [ -n "$BOOTDEV" ]; then
+  echo "$BOOTDEV" > /run/fxboot
+  say "  启动分区: $BOOTDEV"
+else
+  say "  ⚠ 未定位到启动分区，上传镜像只能留在内存盘"
+fi
+
+# ---- 镜像存放 -------------------------------------------------------------
+if [ -n "$BOOTDEV" ]; then
+  if mount -t vfat -o rw,umask=0022 "$BOOTDEV" /mnt 2>/dev/null; then
+    mkdir -p /mnt/images
+    say "  持久仓库: $BOOTDEV → /mnt/images"
+  fi
+fi
+
+# /images 用内存盘：网页上传的镜像落这里，不受 ESP 容量限制
+MEM_MB=$(awk '/MemTotal/{printf "%d", $2/1024}' /proc/meminfo 2>/dev/null)
+[ -z "$MEM_MB" ] && MEM_MB=2048
+IMG_MB=$(( MEM_MB * 55 / 100 ))
+[ "$IMG_MB" -lt 1024 ] && IMG_MB=1024
+[ "$IMG_MB" -gt 8192 ] && IMG_MB=8192
+mkdir -p /images
+if mount -t tmpfs -o size=${FX_IMAGES_SIZE:-${IMG_MB}M} tmpfs /images 2>/dev/null; then
+  say "  上传目录: /images（内存盘 ${FX_IMAGES_SIZE:-${IMG_MB}M}，重启清空）"
+elif [ -d /mnt/images ]; then
+  mount --bind /mnt/images /images 2>/dev/null
+  say "  上传目录: /images（内存不足，改用启动分区）"
+fi
+
+# ---- 网络 ----------------------------------------------------------------
+ip link set lo up 2>/dev/null
+for i in /sys/class/net/*; do
+  n=$(basename "$i")
+  [ "$n" = "lo" ] && continue
+  ip link set "$n" up 2>/dev/null
+done
+
+say "  正在通过 DHCP 获取地址 ..."
+got=0
+for i in /sys/class/net/*; do
+  n=$(basename "$i")
+  [ "$n" = "lo" ] && continue
+  if udhcpc -i "$n" -q -t 5 -T 3 -s /etc/udhcpc.sh >/dev/null 2>&1; then
+    got=1
+    say "  $n: 已获取地址"
+  fi
+done
+
+if [ "$got" -eq 0 ]; then
+  first=""
+  for i in /sys/class/net/eth* /sys/class/net/en*; do
+    [ -e "$i" ] || continue
+    first=$(basename "$i"); break
+  done
+  if [ -n "$first" ]; then
+    ip addr add 192.168.1.250/24 dev "$first" 2>/dev/null
+    say "  DHCP 失败，回退静态地址: $first = 192.168.1.250/24"
+  fi
+fi
+
+# ---- 汇总访问地址 --------------------------------------------------------
+URLS=""
+for a in $(ip -4 addr show 2>/dev/null | awk '/inet /{print $2}' | cut -d/ -f1); do
+  case "$a" in 127.*) continue ;; esac
+  URLS="$URLS http://$a/"
+done
+
+say ""
+say "--------------------------------------------------------------"
+say "  网页刷机控制台已就绪，请在浏览器打开："
+for u in $URLS; do say "      $u"; done
+[ -z "$URLS" ] && say "      （未取到 IP，请插好网线后重启，或用串口登录手动配置）"
+say "--------------------------------------------------------------"
+say ""
+
+# ---- 启动服务（带守护，异常退出自动拉起）---------------------------------
+(
+  while true; do
+    /fxrecovery >>/tmp/fxrecovery.log 2>&1
+    sleep 2
+  done
+) &
+
+# ---- 串口/本地终端给一个可用 shell，便于排障 -----------------------------
+say "按回车进入 shell（可执行 ip a / dmesg / lsblk）"
+setsid sh -c 'exec sh </dev/tty1 >/dev/tty1 2>&1' 2>/dev/null
+[ -c /dev/ttyS2 ] && setsid sh -c 'exec sh </dev/ttyS2 >/dev/ttyS2 2>&1' 2>/dev/null
+
+# 保持 PID 1 存活并回收僵尸
+while true; do
+  sleep 3600 &
+  wait $!
+done
