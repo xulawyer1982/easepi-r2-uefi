@@ -118,8 +118,14 @@ if [ "$got" -eq 0 ]; then
     first=$(basename "$i"); break
   done
   if [ -n "$first" ]; then
-    ip addr add 169.254.1.1/24 dev "$first" 2>/dev/null
-    say "  DHCP 失败，回退静态地址: $first = 169.254.1.1/24"
+    # 回退不用任何写死的内网网段：优先取内核参数 fx.static_ip=a.b.c.d/nn，否则用链路本地地址
+    ssip=$(sed -n 's/.*fx\.static_ip=\([^ ]*\).*/\1/p' /proc/cmdline 2>/dev/null)
+    if [ -n "$ssip" ]; then
+      ip addr add "$ssip" dev "$first" 2>/dev/null && \
+        say "  使用内核参数 fx.static_ip: $first = $ssip"
+    fi
+    ip addr add 169.254.1.1/16 dev "$first" 2>/dev/null && \
+      say "  DHCP 失败，回退链路本地地址: $first = 169.254.1.1/16"
   fi
 fi
 

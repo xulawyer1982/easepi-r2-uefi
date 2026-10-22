@@ -11,6 +11,9 @@
 [edk2-porting/edk2-rk3588](https://github.com/edk2-porting/edk2-rk3588) 上构建。
 
 - 本仓库**不含** UEFI 源码，只有 6 个板级文件 + 打包脚本 + recovery 程序 + CI。
+- 目标硬件：LinkEase EasePi R2（4× RTL8125 2.5G 网口，NVMe 系统盘，eMMC 29 GiB，无 SPI NOR）。
+- **本仓库是公开仓库：不要写入任何内网地址、主机名、Tailscale 域名、真实姓名或邮箱。**
+  需要举例时用 `192.0.2.x`（RFC 5737 文档专用段）/ `example.local` 这类占位值。
 - 边界：**只做固件与引导**。不要往这里塞系统镜像、Docker、NAS 相关逻辑。
 
 启动链（两种产物共用前半段）：
