@@ -131,12 +131,24 @@ sudo dd if=RK3588_NOR_FLASH.img of=/dev/rdiskN bs=1m
 ## 状态
 
 - [x] 板级描述、设备树、PCIe/PMIC/RTC 配置
-- [ ] CI 编译通过
+- [x] CI 编译通过（run #3）
+- [x] 镜像结构自检：`idblock@0x8000 = RKNS`、`FIT@0x100000 = d00dfeed`
 - [ ] 真机串口启动验证
 - [ ] 4× 2.5G 网口 UNDI 驱动验证
 - [ ] NVMe 识别与引导验证
 
 **尚未在真机上验证过任何一项。** 这是第一版移植，预期需要串口日志迭代。
+
+### 当前固件
+
+| 项目 | 值 |
+|---|---|
+| 文件名 | `rk3588-easepi-r2-uefi-Release.img` |
+| 大小 | 6,977,536 bytes（6.65 MiB） |
+| sha256 | `dd53e16153449dc31f2d96221402435c142ed110af0b599cd4e1a40d03068cf8` |
+| 构建 | GitHub Actions run #3，`Release` / GCC |
+
+仓库根目录的 `flash-sd.command` 双击即可写卡（自动找可移除盘、写完回读校验）。
 
 ## 许可
 
