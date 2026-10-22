@@ -2,7 +2,7 @@
 # =============================================================================
 #  组装 EasePi R2 的完整刷机 SD 卡镜像
 #
-#  产物 = UEFI 固件 + FAT32 ESP（GRUB + Linux recovery + 网页刷机程序）
+#  产物 = UEFI 固件 + FAT16 ESP（96 MiB，≥256 MiB 才用 FAT32）（GRUB + Linux recovery + 网页刷机程序）
 #
 #  最终启动链：
 #    BootROM → idblock(SPL+ATF) → EDK2 UEFI → GRUB → Linux → 网页刷机 → dd 写盘
