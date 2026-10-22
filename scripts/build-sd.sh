@@ -200,14 +200,16 @@ open(p, 'wb').write(d)
 print("  清掉 macOS 残留目录项 %d 个" % n)
 PY
 else
-  for f in $(cd "${T}" && find . -type f); do
-    mcopy ${MTOOLS} -o -s "${T}/${f}" "::/${f#./}"
+  # mtools 的 mcopy 不会自动创建目标父目录，必须先 mmd，否则报
+  #   "::/EFI/BOOT/grub.cfg: no match for target"
+  for d in EFI EFI/BOOT boot boot/dtb boot/grub images; do
+    mmd ${MTOOLS} "::/${d}" 2>/dev/null || true
   done
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    mcopy ${MTOOLS} -o -s "${T}/${f}" "::/${f}"
+  done < <(cd "${T}" && find . -type f | sed 's|^\./||')
   echo "  写入 $(cd "${T}" && find . -type f | wc -l | tr -d ' ') 个文件"
-fi
-# 目录也建一下（mtools 只建了文件的父目录，空 images/ 需要显式建）
-if [ "$(uname -s)" != "Darwin" ]; then
-  mmd ${MTOOLS} ::/images 2>/dev/null || true
 fi
 
 ok "ESP 就绪"
