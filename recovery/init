@@ -167,7 +167,8 @@ gen_boot_menu() {
     [ "/dev/$p" = "$BOOTDEV" ] && continue
 
     for fs in ext4 btrfs f2fs ext2 vfat; do
-      mount -t "$fs" -o ro "/dev/$p" /media/probe 2>/dev/null || continue
+      # 只读挂载，且带 noatime：这个是 15 秒一次的轮询，不能给它任何写理由
+      mount -t "$fs" -o ro,noatime "/dev/$p" /media/probe 2>/dev/null || continue
 
       conf=""
       for c in /media/probe/boot/extlinux/extlinux.conf \
@@ -211,6 +212,8 @@ gen_boot_menu() {
         fi
       fi
       umount /media/probe 2>/dev/null
+      # 挂载成功就说明文件系统类型已经定了，别再拿剩下 4 种类型去试挂同一个分区
+      break
     done
   done
 
