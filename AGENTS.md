@@ -113,7 +113,11 @@ cp ../configs/easepi-r2.conf configs/
 
 ## 6. 硬禁区（违反＝烧板或丢数据）
 
-1. **不写 eMMC 前 16 MiB**，除非用户明确要求清 eMMC。刷 SD 卡绝不碰 eMMC。
+1. **不写 eMMC 前 16 MiB**，除非用户**显式**要求清 eMMC。刷 SD 卡绝不碰 eMMC。
+   清 eMMC 的唯一入口是用户自己在 ESP 上放 `fx-wipe-<盘名>.txt`（见 README「清除 eMMC」）。
+   擦盘必须是"用户点了名才做"的动作，绝不能是代码的自动行为：盘名写在文件名里
+   （没有"擦全部"的写法）、目标盘是本回路启动盘则拒绝并改名 `.refused`、
+   完事改名 `.done` 防止重启重复擦。改动这块时，这三条一条都不能丢。
 2. **不改 `avdd_0v75_s0`**（837 mV 是原厂设定）；不改第三个 RK860（i2c1 `0x42`，作用未知）。
 3. **保持这些函数为空**：`PciePowerEn`、`PwmFanIoSetup`、`PlatformSetStatusLed`、`PlatformPcieWiFiEnable` —— R2 的 DTB 里没有对应描述，猜错引脚会把电源轨拉进非法状态。
 4. **不照抄 BDY_G98 的 recovery 流程**：G98 只支持 SPI NOR、eMMC 明确禁用、启动序 USB→NVMe→SATA、只扫分区 1/2。R2 没有 SPI NOR，且**必须**靠 eMMC/SD 当引导中间层。
