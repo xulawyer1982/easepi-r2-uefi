@@ -157,6 +157,7 @@ cp ../configs/easepi-r2.conf configs/
 | 验证镜像时凭空多出 `.Trashes` | 可写挂载会让 macOS 自己创建 | `hdiutil attach -readonly`，或直接按字节解 FAT |
 | `kernel.googlesource.com` 502 | 本机/CI 到该域必挂 | 关掉该子模块：`submodule."devicetree/mainline/upstream".active false` |
 | `github.com:443` 502 | 网络抖动 | push 重试 5–15 次 |
+| 用 API 推上去的文件变成**空文件**（blob sha 一律 `e69de29b`，即空 blob 的固定 sha） | 脚本里 `subprocess.run(["git","show","HEAD:<path>"])` **没传 `cwd`**，不在仓库目录里执行，返回空 bytes，于是把空内容当 blob 传上去了 | 任何 `git show` / `git cat-file` 取内容的调用都必须显式传 `cwd=仓库根`；推完立刻核对远端 blob sha 与本地 `git hash-object` 是否一致。万一已经推空：再建一个 `tree` 把正确 blob 塞回去（`parents` 指向好提交），`force` PATCH ref；并把基于坏提交跑起来的 Actions run 取消掉 |
 | Actions job 日志 401 | `/actions/jobs/{id}/logs` 302 到 Azure Blob，带 Authorization 会拒绝 | 手动跟 302 并**丢掉** Authorization；返回是**纯文本**不是 zip |
 | U-Boot 里 `bootflow` 扫不到 | eMMC 里原厂 idbloader 完好时，BootROM 会先启它，根本到不了 SD 的 UEFI | 串口里 `mmc dev 0` 后 `bootflow scan -lb`；或 maskrom 清掉 eMMC 前 8 MiB |
 
