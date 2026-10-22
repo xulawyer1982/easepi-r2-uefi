@@ -226,6 +226,85 @@ gen_boot_menu() {
   rm -f "$TMP"
 }
 
+# ---- 可选的擦盘请求 -------------------------------------------------------
+#  用法：在 SD 卡的 ESP（Mac/Win 都能直接读写的 FAT 分区）根目录放一个
+#        fx-wipe-<盘名>.txt，例如 fx-wipe-mmcblk0.txt
+#  目的：清掉 eMMC 上的原厂 idbloader 和旧系统，让 BootROM 转而去引导 SD 卡。
+#  盘名必须写在文件名里 —— 不接受"擦全部"这种写法，避免一次误伤多块盘。
+#  文件内容第一行：留空或 head = 只擦前 8 MiB（默认，够破坏 idblock + 分区表）
+#                            full = 全盘擦（大容量盘要几分钟）
+disk_of() {
+  b=$(basename "$1")
+  case "$b" in
+    # mmcblk0p1 -> mmcblk0 ; nvme0n1p2 -> nvme0n1 ; 但 mmcblk0 / nvme0n1 本身不动
+    mmcblk*|nvme*|loop*)
+      case "$b" in
+        *p[0-9]*) echo "/dev/${b%p*}" ;;
+        *)        echo "/dev/$b" ;;
+      esac
+      ;;
+    # sda1 -> sda ; vda12 -> vda
+    *[0-9]) echo "/dev/$(echo "$b" | sed 's/[0-9]*$//')" ;;
+    *)      echo "/dev/$b" ;;
+  esac
+}
+
+run_wipe_requests() {
+  [ -n "$BOOTDEV" ] || return 0
+  BOOTDISK=$(disk_of "$BOOTDEV")
+
+  for f in /mnt/fx-wipe-*.txt; do
+    [ -f "$f" ] || continue
+    d=$(basename "$f" | sed 's/^fx-wipe-//; s/\.txt$//')
+    [ -n "$d" ] || continue
+    tgt="/dev/$d"
+
+    if [ ! -b "$tgt" ]; then
+      say "  擦盘请求跳过：$tgt 不是块设备"
+      continue
+    fi
+    if [ "$tgt" = "$BOOTDISK" ]; then
+      say "  拒绝擦除 $tgt —— 那是本次启动用的盘，擦了就再也起不来"
+      mv "$f" "${f%.txt}.refused" 2>/dev/null
+      continue
+    fi
+    if [ "$tgt" = "$BOOTDEV" ]; then
+      say "  拒绝擦除 $tgt —— 那是本次启动用的分区"
+      mv "$f" "${f%.txt}.refused" 2>/dev/null
+      continue
+    fi
+
+    # 该盘若有分区被挂着，先卸掉再擦
+    awk -v d="$tgt" '$1 ~ "^"d {print $2}' /proc/mounts 2>/dev/null |
+      while read -r m; do umount "$m" 2>/dev/null; done
+
+    mode=$(head -n 1 "$f" 2>/dev/null | tr -d ' \t\r')
+    [ -n "$mode" ] || mode=head
+
+    say "  收到擦盘请求：$tgt（模式 $mode）"
+    if [ "$mode" = "full" ]; then
+      say "  全盘擦除中，大容量盘需要几分钟..."
+      if dd if=/dev/zero of="$tgt" bs=1048576 2>/dev/null; then
+        say "  $tgt 全盘擦除完成"
+      else
+        say "  $tgt 全盘擦除未跑完（看 dmesg）"
+      fi
+    else
+      if dd if=/dev/zero of="$tgt" bs=1048576 count=8 2>/dev/null; then
+        say "  $tgt 前 8 MiB 已清零（idblock + 分区表已废）"
+      else
+        say "  $tgt 擦除失败"
+      fi
+    fi
+    sync
+
+    # 改名，防止下一次开机重复擦
+    mv "$f" "${f%.txt}.done" 2>/dev/null
+    say "  请求文件已改名 $(basename "${f%.txt}.done")，重启不会再擦"
+  done
+}
+run_wipe_requests
+
 # 后台轮询：刷完系统不必再多重启一次。写盘结束后下一次扫描就会把菜单写回 ESP。
 gen_boot_menu
 (

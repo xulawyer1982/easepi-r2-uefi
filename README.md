@@ -136,6 +136,54 @@ sudo dd if=RK3588_NOR_FLASH.img of=/dev/rdiskN bs=1m
 
 ---
 
+## 清除 eMMC
+
+BootROM 的引导顺序是 **eMMC 先于 SD 卡**。只要 eMMC 前 8 MiB 里还留着原厂
+（或上一版飞牛）的 idblock，它就会抢在 SD 卡前面启动 —— 表现为"刷了卡没反应"。
+所以要先把 eMMC 清干净。
+
+**方法一：放一个文件，开机自动擦（不用接串口）**
+
+SD 卡的 ESP 是 FAT 分区，Mac / Windows 都能直接读写。写卡之后、拔卡之前，在
+ESP 根目录放一个文件，名字里写明要擦哪块盘：
+
+```
+fx-wipe-mmcblk0.txt        # 文件名里的盘名 = 目标盘
+```
+
+文件内容第一行决定范围：
+
+| 内容 | 行为 |
+|:--|:--|
+| 留空 / `head` | 只擦前 8 MiB（默认）。足够废掉 idblock + 分区表，让 BootROM 跳过它 |
+| `full` | 全盘擦。29 GiB 的 eMMC 大概几分钟 |
+
+上电后 init 会执行，擦完自动把文件改名成 `fx-wipe-mmcblk0.done`，**重启不会再擦**。
+
+安全边界：
+
+- 盘名必须写在文件名里，没有"擦全部"的写法
+- 如果目标盘正好是本回路启动用的那块盘，直接拒绝并改名 `.refused`
+- 擦之前会先把该盘上挂着的分区卸掉
+
+**方法二：串口 shell 手动来**
+
+开机后 `ttyS2 @1500000 8N1` 按回车就有 `sh`：
+
+```sh
+dd if=/dev/zero of=/dev/mmcblk0 bs=1048576 count=8   # 只废 idblock
+dd if=/dev/zero of=/dev/mmcblk0 bs=1048576           # 全盘
+```
+
+先 `lsblk` 确认哪块是 eMMC 再动手 —— RK3588 上一般是 `mmcblk0`，SD 卡是 `mmcblk1`，
+但别靠猜。
+
+**方法三：Maskrom**
+
+SD 卡完全起不来时用：按住 Maskrom 键上电 → `rkdeveloptool ef`（erase flash）。
+
+---
+
 ## 第一次上机要注意
 
 1. **串口是唯一的诊断窗口**：`ttyS2`（UART2，`0xfeb50000`）**1500000 8N1**。
