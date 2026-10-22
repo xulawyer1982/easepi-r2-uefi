@@ -39,7 +39,8 @@ jobs:
           # kernel.googlesource.com is blocked from most CI networks. We ship a
           # prebuilt vendor DTB, so the mainline devicetree submodule is not
           # needed at all.
-          git config submodule."devicetree/mainline/upstream".active false
+          git config submodule."devicetree/mainline/upstream".url \
+            "https://kernel.googlesource.com/pub/scm/linux/kernel/git/devicetree/devicetree-rebasing.git"
           # --recursive is required: edk2 itself carries nested submodules
           # (BaseTools brotli, CryptoPkg openssl) without which BaseTools
           # fails to build.
@@ -50,6 +51,19 @@ jobs:
           echo "--- nested submodules ---"
           ls -d edk2/BaseTools/Source/C/BrotliCompress/brotli 2>/dev/null || echo "MISSING brotli"
           ls -d edk2/CryptoPkg/Library/OpensslLib/openssl 2>/dev/null || echo "MISSING openssl"
+
+          # RockchipPkg.dec lists devicetree/mainline/upstream/{include,src/...}
+          # under [Includes], so those directories must exist for the build to
+          # even start. We ship a prebuilt vendor DTB and never compile a
+          # mainline DTS, but the paths still have to be present.
+          if git submodule update --init --depth 1 devicetree/mainline/upstream; then
+            echo "devicetree submodule: fetched"
+          else
+            echo "::warning::devicetree submodule unreachable - stubbing include paths"
+            mkdir -p devicetree/mainline/upstream/include \
+                     devicetree/mainline/upstream/src/arm64/rockchip
+          fi
+          test -d devicetree/mainline/upstream/include || exit 1
 
       - name: Apply EasePi R2 platform overlay
         run: |
